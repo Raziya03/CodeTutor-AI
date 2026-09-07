@@ -11,9 +11,13 @@ from main import app as fastapi_app
 async def app(scope, receive, send):
     if scope.get("type") == "http":
         headers = dict(scope.get("headers", []))
-        matched_path = headers.get(b"x-matched-path", b"").decode("utf-8")
-        if matched_path:
-            scope["path"] = matched_path
-        elif scope.get("path", "").endswith("/api/index.py"):
-            scope["path"] = "/api"
+        path_override = (
+            headers.get(b"x-matched-path", b"").decode("utf-8") or
+            headers.get(b"x-forwarded-uri", b"").decode("utf-8") or
+            headers.get(b"x-rewrite-url", b"").decode("utf-8")
+        )
+        if path_override:
+            scope["path"] = path_override.split("?")[0]
+        elif scope.get("path", "") in ["/api/index.py", "/api/index", "/api/"]:
+            scope["path"] = "/api/health"
     await fastapi_app(scope, receive, send)

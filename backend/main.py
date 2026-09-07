@@ -59,6 +59,8 @@ if os.path.exists(assets_dist):
 
 router = APIRouter()
 
+@router.get("/")
+@router.get("")
 @router.get("/health")
 def health_check():
     """Status probe reporting backend, AI model, and database readiness."""
