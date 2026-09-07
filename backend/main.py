@@ -57,6 +57,18 @@ assets_dist = os.path.join(frontend_dist, "assets")
 if os.path.exists(assets_dist):
     app.mount("/assets", StaticFiles(directory=assets_dist), name="assets")
 
+from starlette.requests import Request
+
+@app.middleware("http")
+async def handle_vercel_routing(request: Request, call_next):
+    matched = request.headers.get("x-matched-path") or request.headers.get("x-forwarded-uri") or request.headers.get("x-rewrite-url")
+    if matched:
+        clean_path = matched.split("?")[0]
+        request.scope["path"] = clean_path
+    elif request.url.path in ["/api/index.py", "/api/index", "/api/"]:
+        request.scope["path"] = "/api/health"
+    return await call_next(request)
+
 router = APIRouter()
 
 @router.get("/")
