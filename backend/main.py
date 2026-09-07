@@ -52,22 +52,16 @@ def get_frontend_dist_path():
             return p
     return candidates[0]
 
-frontend_dist = get_frontend_dist_path()
-assets_dist = os.path.join(frontend_dist, "assets")
-if os.path.exists(assets_dist):
-    app.mount("/assets", StaticFiles(directory=assets_dist), name="assets")
+is_vercel = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
 
-from starlette.requests import Request
-
-@app.middleware("http")
-async def handle_vercel_routing(request: Request, call_next):
-    matched = request.headers.get("x-matched-path") or request.headers.get("x-forwarded-uri") or request.headers.get("x-rewrite-url")
-    if matched:
-        clean_path = matched.split("?")[0]
-        request.scope["path"] = clean_path
-    elif request.url.path in ["/api/index.py", "/api/index", "/api/"]:
-        request.scope["path"] = "/api/health"
-    return await call_next(request)
+if not is_vercel:
+    frontend_dist = get_frontend_dist_path()
+    assets_dist = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_dist):
+        try:
+            app.mount("/assets", StaticFiles(directory=assets_dist), name="assets")
+        except Exception:
+            pass
 
 router = APIRouter()
 
@@ -224,40 +218,36 @@ def debug_code(req: DebugRequest):
 app.include_router(router, prefix="/api")
 app.include_router(router, prefix="")
 
-@app.get("/assets/{asset_name:path}")
-def serve_assets(asset_name: str):
-    """Explicitly serve assets from frontend dist with proper MIME types."""
-    asset_file = os.path.join(frontend_dist, "assets", asset_name)
-    if os.path.exists(asset_file) and os.path.isfile(asset_file):
-        return FileResponse(asset_file)
-    raise HTTPException(status_code=404, detail="Asset not found.")
-
-@app.get("/{full_path:path}")
-def serve_spa(full_path: str = ""):
-    """Serve React frontend static build and handle single page application routing."""
-    if full_path.startswith("api"):
-        raise HTTPException(status_code=404, detail="API endpoint not found.")
-
-    if full_path.startswith("assets/"):
+if not is_vercel:
+    @app.get("/assets/{asset_name:path}")
+    def serve_assets(asset_name: str):
+        """Explicitly serve assets from frontend dist with proper MIME types."""
+        asset_file = os.path.join(frontend_dist, "assets", asset_name)
+        if os.path.exists(asset_file) and os.path.isfile(asset_file):
+            return FileResponse(asset_file)
         raise HTTPException(status_code=404, detail="Asset not found.")
 
-    # Check if a specific root static file exists (favicon, manifest, etc.)
-    file_path = os.path.join(frontend_dist, full_path)
-    if full_path and os.path.exists(file_path) and os.path.isfile(file_path):
-        return FileResponse(file_path)
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str = ""):
+        """Serve React frontend static build and handle single page application routing."""
+        if full_path.startswith("api") or full_path.startswith("assets/"):
+            raise HTTPException(status_code=404, detail="Not found.")
 
-    # Return fresh index.html with no-cache headers for all SPA routes
-    index_html = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_html):
-        return FileResponse(
-            index_html,
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
-        )
+        file_path = os.path.join(frontend_dist, full_path)
+        if full_path and os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
 
-    return {
-        "message": "Programming Tutor AI Backend is Running!",
-        "health_check": "/api/health"
-    }
+        index_html = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_html):
+            return FileResponse(
+                index_html,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+            )
+
+        return {
+            "message": "Programming Tutor AI Backend is Running!",
+            "health_check": "/api/health"
+        }
 
 if __name__ == "__main__":
     import uvicorn
