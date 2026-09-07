@@ -1,6 +1,9 @@
 import { getAccessToken } from './supabase';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/+$/, '');
+const API_BASE = (
+  import.meta.env.VITE_API_URL || 
+  (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api')
+).replace(/\/+$/, '');
 
 /**
  * Handle API fetch with bearer auth, error handling and fallback
