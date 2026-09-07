@@ -2,6 +2,8 @@ import os
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 # Load local environment variables if .env exists
@@ -38,15 +40,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def root():
-    """Root landing endpoint redirecting or pointing to frontend."""
-    return {
-        "message": "Programming Tutor AI Backend is Running!",
-        "frontend_url": "http://localhost:5173",
-        "docs_url": "http://localhost:8000/docs",
-        "health_check": "http://localhost:8000/api/health"
-    }
+# Detect frontend static distribution path
+def get_frontend_dist_path():
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "dist")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist")),
+    ]
+    for p in candidates:
+        if os.path.exists(os.path.join(p, "index.html")):
+            return p
+    return candidates[0]
+
+frontend_dist = get_frontend_dist_path()
+assets_dist = os.path.join(frontend_dist, "assets")
+if os.path.exists(assets_dist):
+    app.mount("/assets", StaticFiles(directory=assets_dist), name="assets")
+
 
 @app.get("/api/health")
 def health_check():
@@ -197,7 +207,30 @@ def debug_code(req: DebugRequest):
         raise HTTPException(status_code=400, detail="Code cannot be empty.")
     return tutor_engine.debug_code(req)
 
+@app.get("/{full_path:path}")
+def serve_spa(full_path: str = ""):
+    """Serve React frontend static build and handle single page application routing."""
+    # Do not intercept unmatched /api routes
+    if full_path.startswith("api"):
+        raise HTTPException(status_code=404, detail="API endpoint not found.")
+
+    # Check if a specific file exists in the frontend dist directory (e.g. favicon.svg)
+    file_path = os.path.join(frontend_dist, full_path)
+    if full_path and os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+
+    # Return index.html for all other routes
+    index_html = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_html):
+        return FileResponse(index_html)
+
+    return {
+        "message": "Programming Tutor AI Backend is Running!",
+        "health_check": "/api/health"
+    }
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+
