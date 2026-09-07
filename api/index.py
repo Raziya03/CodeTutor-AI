@@ -1,9 +1,8 @@
 import sys
 import os
 
-# Add backend directory to system path so imports inside backend work seamlessly on Vercel
-backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
+api_dir = os.path.dirname(__file__)
+if api_dir not in sys.path:
+    sys.path.insert(0, api_dir)
 
 from main import app
