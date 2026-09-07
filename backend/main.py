@@ -207,22 +207,35 @@ def debug_code(req: DebugRequest):
         raise HTTPException(status_code=400, detail="Code cannot be empty.")
     return tutor_engine.debug_code(req)
 
+@app.get("/assets/{asset_name:path}")
+def serve_assets(asset_name: str):
+    """Explicitly serve assets from frontend dist with proper MIME types."""
+    asset_file = os.path.join(frontend_dist, "assets", asset_name)
+    if os.path.exists(asset_file) and os.path.isfile(asset_file):
+        return FileResponse(asset_file)
+    raise HTTPException(status_code=404, detail="Asset not found.")
+
 @app.get("/{full_path:path}")
 def serve_spa(full_path: str = ""):
     """Serve React frontend static build and handle single page application routing."""
-    # Do not intercept unmatched /api routes
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="API endpoint not found.")
 
-    # Check if a specific file exists in the frontend dist directory (e.g. favicon.svg)
+    if full_path.startswith("assets/"):
+        raise HTTPException(status_code=404, detail="Asset not found.")
+
+    # Check if a specific root static file exists (favicon, manifest, etc.)
     file_path = os.path.join(frontend_dist, full_path)
     if full_path and os.path.exists(file_path) and os.path.isfile(file_path):
         return FileResponse(file_path)
 
-    # Return index.html for all other routes
+    # Return fresh index.html with no-cache headers for all SPA routes
     index_html = os.path.join(frontend_dist, "index.html")
     if os.path.exists(index_html):
-        return FileResponse(index_html)
+        return FileResponse(
+            index_html,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        )
 
     return {
         "message": "Programming Tutor AI Backend is Running!",
