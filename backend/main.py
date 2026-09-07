@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, Query, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -57,8 +57,9 @@ assets_dist = os.path.join(frontend_dist, "assets")
 if os.path.exists(assets_dist):
     app.mount("/assets", StaticFiles(directory=assets_dist), name="assets")
 
+router = APIRouter()
 
-@app.get("/api/health")
+@router.get("/health")
 def health_check():
     """Status probe reporting backend, AI model, and database readiness."""
     load_dotenv(override=True)
@@ -71,14 +72,14 @@ def health_check():
         "openai_configured": bool(os.getenv("OPENAI_API_KEY", "").strip())
     }
 
-@app.get("/api/auth/me")
+@router.get("/auth/me")
 def get_current_user_profile(user: Optional[Dict[str, Any]] = Depends(get_optional_user)):
     """Returns the authenticated user details, or guest status if unauthenticated."""
     if not user:
         return {"authenticated": False, "user": None}
     return {"authenticated": True, "user": user}
 
-@app.post("/api/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse)
 def chat_with_tutor(
     req: ChatRequest,
     current_user: Optional[Dict[str, Any]] = Depends(get_optional_user)
@@ -96,18 +97,16 @@ def chat_with_tutor(
     if current_user:
         user_id = current_user["id"]
         token = current_user.get("token")
-        # If no active conversation specified, create a new one with a smart title
         if not conv_id:
             title = req.message.strip().replace("\n", " ")[:40]
             new_conv = database.create_conversation(user_id, title=title, difficulty=req.difficulty, token=token)
             if new_conv:
                 conv_id = str(new_conv["id"])
 
-        # Save user message to database
         if conv_id:
             database.save_message(conv_id, role="user", content=req.message, token=token)
 
-    # Generate pedagogical reply (via OpenAI if key present, else built-in tutor)
+    # Generate pedagogical reply
     response = tutor_engine.chat(req)
 
     # Attach and persist assistant response if conversation exists
@@ -124,7 +123,7 @@ def chat_with_tutor(
 
     return response
 
-@app.get("/api/conversations", response_model=List[ConversationSummary])
+@router.get("/conversations", response_model=List[ConversationSummary])
 def list_user_conversations(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Fetch all past chat threads belonging to the authenticated student."""
     conversations = database.list_conversations(current_user["id"], token=current_user.get("token"))
@@ -139,7 +138,7 @@ def list_user_conversations(current_user: Dict[str, Any] = Depends(get_current_u
         for c in conversations
     ]
 
-@app.post("/api/conversations", response_model=ConversationDetail)
+@router.post("/conversations", response_model=ConversationDetail)
 def create_new_conversation(
     body: ConversationCreate,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -163,7 +162,7 @@ def create_new_conversation(
         messages=[]
     )
 
-@app.get("/api/conversations/{conversation_id}", response_model=ConversationDetail)
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 def get_conversation_history(
     conversation_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -182,7 +181,7 @@ def get_conversation_history(
         messages=conv.get("messages", [])
     )
 
-@app.delete("/api/conversations/{conversation_id}")
+@router.delete("/conversations/{conversation_id}")
 def remove_conversation(
     conversation_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -193,19 +192,23 @@ def remove_conversation(
         raise HTTPException(status_code=500, detail="Failed to delete conversation.")
     return {"message": "Conversation deleted successfully", "id": conversation_id}
 
-@app.post("/api/explain", response_model=ExplainResponse)
+@router.post("/explain", response_model=ExplainResponse)
 def explain_code(req: ExplainRequest):
     """Line-by-line code explanation, concepts, and complexity analysis."""
     if not req.code.strip():
         raise HTTPException(status_code=400, detail="Code cannot be empty.")
     return tutor_engine.explain_code(req)
 
-@app.post("/api/debug", response_model=DebugResponse)
+@router.post("/debug", response_model=DebugResponse)
 def debug_code(req: DebugRequest):
     """Diagnose bugs, explain root causes, and provide corrected code."""
     if not req.code.strip():
         raise HTTPException(status_code=400, detail="Code cannot be empty.")
     return tutor_engine.debug_code(req)
+
+# Register API router for both /api and root paths
+app.include_router(router, prefix="/api")
+app.include_router(router, prefix="")
 
 @app.get("/assets/{asset_name:path}")
 def serve_assets(asset_name: str):
